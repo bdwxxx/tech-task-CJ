@@ -11,7 +11,7 @@ export const config = {
     app: {
         accountTimezone: 'Etc/GMT-4',
         delayCycleDays: [1, 3, 5, 7, 9],
-        newDueTime: { hours: 12, minutes: 0, seconds: 0 }, 
+        newFinalizationTime: { hours: 12, minutes: 0, seconds: 0 }, 
 
         dailyLimitAED: 30,
         currency: 'aed', 

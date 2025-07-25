@@ -20,15 +20,16 @@ export class TimeService {
         return { startTimestamp, endTimestamp };
     }
 
-    public calculateNewDueDate(baseTimestamp: number, delayDays: number, dueTime: { hours: number; minutes: number; seconds: number }): number {
-        const tz = config.app.accountTimezone;
-        const base = DateTime.fromSeconds(baseTimestamp, { zone: tz });
-        const target = base.plus({ days: delayDays }).set({
-            hour: dueTime.hours,
-            minute: dueTime.minutes,
-            second: dueTime.seconds,
-            millisecond: 0
-        });
-        return Math.floor(target.toUTC().toSeconds());
+        public calculateNewFinalizationTimestamp(delayDays: number): number {
+        const newDate = DateTime.now()
+            .setZone(config.app.accountTimezone)
+            .plus({ days: delayDays })
+            .set({
+                hour: config.app.newFinalizationTime.hours,
+                minute: config.app.newFinalizationTime.minutes,
+                second: config.app.newFinalizationTime.seconds,
+                millisecond: 0
+            });
+        return Math.floor(newDate.toSeconds());
     }
 }

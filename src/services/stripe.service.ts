@@ -1,7 +1,6 @@
 import Stripe from 'stripe';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
-import { DayPeriod } from './time.service.js';
 import { DateTime } from 'luxon';
 
 const log = logger(import.meta);
@@ -39,29 +38,113 @@ export class StripeService {
         return grossVolume;
     }
 
-    public async findFinalizingDrafts(): Promise<Stripe.Invoice[]> {
-        const result = await this.stripe.invoices.list({
-            status: 'draft',
-            limit: 100,
+    public async findInvoicesFinalizingToday(period: { startTimestamp: number, endTimestamp: number }): Promise<Stripe.Invoice[]> {
+        const invoicesToProcess: Stripe.Invoice[] = [];
+        
+        const draftsResult = await this.stripe.invoices.list({ 
+            status: 'draft', 
+            limit: 100 
+        });
+        
+        log.info(`Всего найдено черновиков: ${draftsResult.data.length}`);
+
+        const autoAdvancingDrafts = draftsResult.data.filter(invoice => {
+            if (!invoice.auto_advance) return false;
+            
+            const finalizesAt = invoice.automatically_finalizes_at;
+            const isToday = finalizesAt && finalizesAt >= period.startTimestamp && finalizesAt <= period.endTimestamp;
+            
+            if (isToday) {
+                log.info(`Найден auto-advancing draft: ${invoice.id}, финализация: ${new Date(finalizesAt * 1000).toISOString()}`);
+            }
+            
+            return isToday;
         });
 
-        log.info(`Найдено всего черновиков: ${result.data.length}. Фильтрую активные...`);
-        
-        const activeDrafts = result.data.filter(invoice => 
-            invoice.auto_advance !== false
-        );
+        invoicesToProcess.push(...autoAdvancingDrafts);
 
-        const sorted = activeDrafts.sort((a, b) => a.created - b.created);
-        log.info(`Найдено активных черновиков для переноса: ${sorted.length}`);
+        const openResult = await this.stripe.invoices.list({ 
+            status: 'open', 
+            limit: 100 
+        });
+        
+        log.info(`Всего найдено открытых инвойсов: ${openResult.data.length}`);
+
+        const openInvoicesDueToday = openResult.data.filter(invoice => {
+            const dueDate = invoice.due_date;
+            const isDueToday = dueDate && dueDate >= period.startTimestamp && dueDate <= period.endTimestamp;
+            
+            if (isDueToday) {
+                log.info(`Найден открытый инвойс со сроком сегодня: ${invoice.id}, due_date: ${new Date(dueDate * 1000).toISOString()}`);
+            }
+            
+            return isDueToday;
+        });
+
+        invoicesToProcess.push(...openInvoicesDueToday);
+
+        const sorted = invoicesToProcess.sort((a, b) => a.created - b.created);
+        
+        log.info(`Всего найдено инвойсов для обработки: ${sorted.length}`);
+        
         return sorted;
     }
 
-    public async rescheduleDraftFinalization(invoiceId: string, newFinalizationTimestamp: number): Promise<void> {
-        await this.stripe.invoices.update(invoiceId, {
-            due_date: newFinalizationTimestamp,
-        });
-        log.info(`Для черновика ${invoiceId} перенесена дата финализации и оплаты на ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
+    public async rescheduleInvoice(invoice: Stripe.Invoice, newTimestamp: number): Promise<void> {
+        const updatePayload: Stripe.InvoiceUpdateParams = {};
+        const newDate = new Date(newTimestamp * 1000).toISOString();
+        
+        log.info(`Перенос инвойса ${invoice.id}:`);
+        log.info(`Статус: ${invoice.status}`);
+        log.info(`Collection method: ${invoice.collection_method}`);
+        log.info(`Auto advance: ${invoice.auto_advance}`);
+        log.info(`Новая дата: ${newDate}`);
+
+        if (invoice.status === 'draft') {
+            updatePayload.automatically_finalizes_at = newTimestamp;
+            
+            if (invoice.collection_method === 'send_invoice') {
+                updatePayload.due_date = newTimestamp;
+                log.info(`Обновление: automatically_finalizes_at + due_date`);
+            } else {
+                log.info(`Обновление: только automatically_finalizes_at`);
+            }
+            
+        } else if (invoice.status === 'open') {
+            updatePayload.due_date = newTimestamp;
+            log.info(`Обновление: due_date для открытого инвойса`);
+            
+            if (invoice.collection_method === 'charge_automatically') {
+                log.info(`Автоматическая оплата, следующая попытка будет перенесена`);
+            }
+        }
+
+        try {
+            await this.stripe.invoices.update(invoice.id!, updatePayload);
+            log.info(`Инвойс ${invoice.id} успешно перенесен на ${newDate}`);
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            log.error(`Ошибка при переносе инвойса ${invoice.id}: ${errorMsg}`);
+            throw error;
+        }
     }
 
-
+    public async getInvoiceDetails(invoiceId: string): Promise<Stripe.Invoice> {
+        try {
+            const invoice = await this.stripe.invoices.retrieve(invoiceId);
+            log.info(`Детали инвойса ${invoiceId}:`);
+            log.info(`Статус: ${invoice.status}`);
+            log.info(`Сумма: ${invoice.amount_due / 100} ${invoice.currency.toUpperCase()}`);
+            log.info(`Collection method: ${invoice.collection_method}`);
+            log.info(`Auto advance: ${invoice.auto_advance}`);
+            log.info(`Due date: ${invoice.due_date ? new Date(invoice.due_date * 1000).toISOString() : 'не установлен'}`);
+            log.info(`Automatically finalizes at: ${invoice.automatically_finalizes_at ? new Date(invoice.automatically_finalizes_at * 1000).toISOString() : 'не установлен'}`);
+            
+            return invoice;
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            log.error(`Ошибка получения деталей инвойса ${invoiceId}: ${errorMsg}`);
+            throw error;
+        }
+    }
 }
