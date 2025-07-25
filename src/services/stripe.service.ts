@@ -58,7 +58,6 @@ export class StripeService {
 
     public async rescheduleDraftFinalization(invoiceId: string, newFinalizationTimestamp: number): Promise<void> {
         await this.stripe.invoices.update(invoiceId, {
-            collection_method: 'send_invoice',
             due_date: newFinalizationTimestamp,
         });
         log.info(`Для черновика ${invoiceId} перенесена дата финализации и оплаты на ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
