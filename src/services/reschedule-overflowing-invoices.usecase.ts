@@ -35,27 +35,30 @@ export class RescheduleOverflowingInvoicesUsecase {
             return;
         }
 
-        log.info(`Обнаружено ${draftsToReschedule.length} черновиков. Начинаю перенос даты финализации...`);
+        log.info(`Обнаружено ${draftsToReschedule.length} черновиков. Начинаю распределенный перенос даты финализации...`);
         let processedCount = 0;
 
-        for (const invoice of draftsToReschedule) {
+        for (const [index, invoice] of draftsToReschedule.entries()) {
             try {
                 if (!checkInvoiceValid(invoice)) {
                     log.warn(`Пропущен черновик с некорректным ID: ${invoice.id}`);
-                    continue;
+                    continue; 
                 }
                 
-                const tomorrowTimestamp = this.timeService.calculateNewDueDate(Date.now() / 1000, 1, config.app.newDueTime);
+                const delayDays = config.app.delayCycleDays[index % config.app.delayCycleDays.length];
+                const newFinalizationTimestamp = this.timeService.calculateNewDueDate(Date.now() / 1000, delayDays, config.app.newDueTime);
 
                 log.info(`\n -> Обработка черновика ${invoice.id}:`);
-                log.info(`    Новая дата финализации будет: ${new Date(tomorrowTimestamp * 1000).toISOString()}`);
+                log.info(`    Применяемое смещение: +${delayDays} дней.`);
+                log.info(`    Новая дата финализации будет: ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
 
                 if (config.app.dryRun) {
                     log.info(`[DRY-RUN] Для инвойса ${invoice.id} НЕ была бы перенесена дата финализации.`);
                 } else {
-                    await this.stripeService.rescheduleDraftFinalization(invoice.id!, tomorrowTimestamp);
+                    await this.stripeService.rescheduleDraftFinalization(invoice.id!, newFinalizationTimestamp);
                 }
                 processedCount++;
+
             } catch (error) {
                 log.error(`Не удалось перенести черновик ${invoice.id}. Причина: ${error}`);
             }

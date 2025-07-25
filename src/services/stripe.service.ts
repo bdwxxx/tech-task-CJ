@@ -40,19 +40,25 @@ export class StripeService {
     }
 
     public async findFinalizingDrafts(): Promise<Stripe.Invoice[]> {
-        const result = await this.stripe.invoices.list({
-            status: 'draft',
+        const query = `status:'draft' AND auto_advance!=false AND metadata['rescheduled_on'] = null`;
+
+        const result = await this.stripe.invoices.search({
+            query: query,
             limit: 100,
         });
-        const activeDrafts = result.data.filter(invoice => invoice.auto_advance !== false);
-        log.info(`Найдено активных черновиков для потенциального переноса: ${activeDrafts.length}`);
-        return activeDrafts;
+
+        const sorted = result.data.sort((a, b) => a.created - b.created);
+        log.info(`Найдено необработанных черновиков для переноса: ${sorted.length}`);
+        return sorted;
     }
 
     public async rescheduleDraftFinalization(invoiceId: string, newFinalizationTimestamp: number): Promise<void> {
         await this.stripe.invoices.update(invoiceId, {
             collection_method: 'send_invoice',
             due_date: newFinalizationTimestamp,
+            metadata: {
+                rescheduled_on: DateTime.now().toISODate()
+            }
         });
         log.info(`Для черновика ${invoiceId} перенесена дата финализации и оплаты на ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
     }
