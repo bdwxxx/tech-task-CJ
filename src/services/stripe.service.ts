@@ -40,15 +40,19 @@ export class StripeService {
     }
 
     public async findFinalizingDrafts(): Promise<Stripe.Invoice[]> {
-        const query = `status:'draft' AND auto_advance:'true'`;
-
-        const result = await this.stripe.invoices.search({
-            query: query,
+        const result = await this.stripe.invoices.list({
+            status: 'draft',
             limit: 100,
         });
 
-        const sorted = result.data.sort((a, b) => a.created - b.created);
-        log.info(`Найдено необработанных черновиков для переноса: ${sorted.length}`);
+        log.info(`Найдено всего черновиков: ${result.data.length}. Фильтрую активные...`);
+        
+        const activeDrafts = result.data.filter(invoice => 
+            invoice.auto_advance !== false
+        );
+
+        const sorted = activeDrafts.sort((a, b) => a.created - b.created);
+        log.info(`Найдено активных черновиков для переноса: ${sorted.length}`);
         return sorted;
     }
 
