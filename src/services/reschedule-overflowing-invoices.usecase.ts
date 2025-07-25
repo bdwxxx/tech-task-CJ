@@ -21,19 +21,15 @@ export class RescheduleOverflowingInvoicesUsecase {
 
         if (grossVolume >= config.app.dailyLimitAED) {
             log.warn(`Дневной лимит достигнут! Перенос черновиков.`);
-            await this.rescheduleActiveDrafts(period);
+            await this.rescheduleActiveDrafts();
         } else {
             log.info(`Лимит в норме. Вмешательство не требуется.`);
         }
     }
 
-    private async rescheduleActiveDrafts(period: DayPeriod): Promise<void> {
-        const allActiveDrafts = await this.stripeService.findFinalizingDrafts();
+    private async rescheduleActiveDrafts(): Promise<void> {
+        const draftsToProcess = await this.stripeService.findFinalizingDrafts();
 
-        const draftsToProcess = allActiveDrafts.filter(invoice => {
-            const dueDate = invoice.due_date;
-            return !dueDate || (dueDate >= period.startTimestamp && dueDate <= period.endTimestamp);
-        });
 
         if (draftsToProcess.length === 0) {
             log.info('Активных черновиков, требующих переноса СЕГОДНЯ, не найдено.');
@@ -51,7 +47,7 @@ export class RescheduleOverflowingInvoicesUsecase {
                 const newFinalizationTimestamp = this.timeService.calculateNewDueDate(Date.now() / 1000, delayDays, config.app.newDueTime);
 
                 log.info(`\n -> Обработка черновика ${invoice.id}:`);
-                log.info(`    Текущая дата финализации: сегодня. Применяемое смещение: +${delayDays} дней.`);
+                log.info(`    Применяемое смещение: +${delayDays} дней.`);
                 log.info(`    Новая дата финализации будет: ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
 
                 if (config.app.dryRun) {
