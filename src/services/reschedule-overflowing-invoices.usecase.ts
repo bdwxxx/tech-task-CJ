@@ -21,49 +21,50 @@ export class RescheduleOverflowingInvoicesUsecase {
 
         if (grossVolume >= config.app.dailyLimitAED) {
             log.warn(`Дневной лимит достигнут! Перенос черновиков.`);
-            await this.rescheduleActiveDrafts();
+            await this.rescheduleActiveDrafts(period);
         } else {
             log.info(`Лимит в норме. Вмешательство не требуется.`);
         }
     }
 
-    private async rescheduleActiveDrafts(): Promise<void> {
-        const draftsToReschedule = await this.stripeService.findFinalizingDrafts();
+    private async rescheduleActiveDrafts(period: DayPeriod): Promise<void> {
+        const allActiveDrafts = await this.stripeService.findFinalizingDrafts();
 
-        if (draftsToReschedule.length === 0) {
-            log.info('Активных черновиков для переноса не найдено.');
+        const draftsToProcess = allActiveDrafts.filter(invoice => {
+            const dueDate = invoice.due_date;
+            return !dueDate || (dueDate >= period.startTimestamp && dueDate <= period.endTimestamp);
+        });
+
+        if (draftsToProcess.length === 0) {
+            log.info('Активных черновиков, требующих переноса СЕГОДНЯ, не найдено.');
             return;
         }
 
-        log.info(`Обнаружено ${draftsToReschedule.length} черновиков. Начинаю распределенный перенос даты финализации...`);
+        log.info(`Обнаружено ${draftsToProcess.length} черновиков для переноса. Начинаю распределение...`);
         let processedCount = 0;
 
-        for (const [index, invoice] of draftsToReschedule.entries()) {
+        for (const [index, invoice] of draftsToProcess.entries()) {
             try {
-                if (!checkInvoiceValid(invoice)) {
-                    log.warn(`Пропущен черновик с некорректным ID: ${invoice.id}`);
-                    continue; 
-                }
+                if (!checkInvoiceValid(invoice)) { continue; }
                 
                 const delayDays = config.app.delayCycleDays[index % config.app.delayCycleDays.length];
                 const newFinalizationTimestamp = this.timeService.calculateNewDueDate(Date.now() / 1000, delayDays, config.app.newDueTime);
 
                 log.info(`\n -> Обработка черновика ${invoice.id}:`);
-                log.info(`    Применяемое смещение: +${delayDays} дней.`);
+                log.info(`    Текущая дата финализации: сегодня. Применяемое смещение: +${delayDays} дней.`);
                 log.info(`    Новая дата финализации будет: ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
 
                 if (config.app.dryRun) {
-                    log.info(`[DRY-RUN] Для инвойса ${invoice.id} НЕ была бы перенесена дата финализации.`);
+                    log.info(`[DRY-RUN] Для инвойса ${invoice.id} НЕ была бы перенесена дата.`);
                 } else {
                     await this.stripeService.rescheduleDraftFinalization(invoice.id!, newFinalizationTimestamp);
                 }
                 processedCount++;
-
             } catch (error) {
                 log.error(`Не удалось перенести черновик ${invoice.id}. Причина: ${error}`);
             }
         }
-        log.info(`\nПроцесс переноса черновиков завершен. Обработано: ${processedCount} из ${draftsToReschedule.length}.`);
+        log.info(`\nПроцесс переноса черновиков завершен. Обработано: ${processedCount} из ${draftsToProcess.length}.`);
     }
 }
 

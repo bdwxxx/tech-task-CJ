@@ -40,7 +40,7 @@ export class StripeService {
     }
 
     public async findFinalizingDrafts(): Promise<Stripe.Invoice[]> {
-        const query = `status:'draft' AND auto_advance!=false AND metadata['rescheduled_on'] = null`;
+        const query = `status:'draft' AND auto_advance:'true'`;
 
         const result = await this.stripe.invoices.search({
             query: query,
@@ -56,9 +56,6 @@ export class StripeService {
         await this.stripe.invoices.update(invoiceId, {
             collection_method: 'send_invoice',
             due_date: newFinalizationTimestamp,
-            metadata: {
-                rescheduled_on: DateTime.now().toISODate()
-            }
         });
         log.info(`Для черновика ${invoiceId} перенесена дата финализации и оплаты на ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
     }
