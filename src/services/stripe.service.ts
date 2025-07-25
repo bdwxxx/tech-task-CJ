@@ -39,38 +39,23 @@ export class StripeService {
         return grossVolume;
     }
 
-    public async getUntouchedOpenInvoices(period: DayPeriod): Promise<Stripe.Invoice[]> {
-        log.info(`Выполняю поиск инвойсов с due_date в периоде...`);
-        
+    public async findFinalizingDrafts(): Promise<Stripe.Invoice[]> {
         const result = await this.stripe.invoices.list({
-            status: 'open',
-            due_date: {
-                gte: period.startTimestamp,
-                lte: period.endTimestamp,
-            },
+            status: 'draft',
             limit: 100,
         });
-
-        log.info(`Найдено ${result.data.length} инвойсов с датой оплаты сегодня.`);
-
-        const untouchedInvoices = result.data.filter(invoice => {
-            return !invoice.metadata || !invoice.metadata.invoice_rescheduled_on;
-        });
-
-        const sortedInvoices = untouchedInvoices.sort((a, b) => a.created - b.created);
-        
-        log.info(`Из них НЕОБРАБОТАННЫХ для переноса: ${sortedInvoices.length}`);
-        return sortedInvoices;
+        const activeDrafts = result.data.filter(invoice => invoice.auto_advance !== false);
+        log.info(`Найдено активных черновиков для потенциального переноса: ${activeDrafts.length}`);
+        return activeDrafts;
     }
 
-    public async rescheduleInvoice(invoiceId: string, newDueDateTimestamp: number): Promise<void> {
+    public async rescheduleDraftFinalization(invoiceId: string, newFinalizationTimestamp: number): Promise<void> {
         await this.stripe.invoices.update(invoiceId, {
-            due_date: newDueDateTimestamp,
-             metadata: {
-                invoice_rescheduled_on: DateTime.now().toISODate() 
-             }
+            collection_method: 'send_invoice',
+            due_date: newFinalizationTimestamp,
         });
-        log.info(`Успешно перенесен инвойс ${invoiceId} и установлена метка.`);
+        log.info(`Для черновика ${invoiceId} перенесена дата финализации и оплаты на ${new Date(newFinalizationTimestamp * 1000).toISOString()}`);
     }
+
 
 }

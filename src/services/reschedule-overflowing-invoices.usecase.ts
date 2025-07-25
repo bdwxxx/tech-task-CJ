@@ -19,56 +19,48 @@ export class RescheduleOverflowingInvoicesUsecase {
         const period = this.timeService.getCurrentDayPeriod(config.app.accountTimezone);
         const grossVolume = await this.stripeService.getGrossVolume(period.startTimestamp, period.endTimestamp);
 
-        if (grossVolume < config.app.dailyLimitAED) {
-            log.info(`Лимит ${config.app.dailyLimitAED} ${config.app.currency.toUpperCase()} не достигнут. Работа завершена.`);
-            return;
+        if (grossVolume >= config.app.dailyLimitAED) {
+            log.warn(`Дневной лимит достигнут! Перенос черновиков.`);
+            await this.rescheduleActiveDrafts();
+        } else {
+            log.info(`Лимит в норме. Вмешательство не требуется.`);
         }
-
-        log.info(`Дневной лимит достигнут! Начинаю перенос инвойсов.`);
-        await this.processInvoices(period);
     }
 
-     private async processInvoices(period: DayPeriod): Promise<void> {
-        const invoicesToProcess = await this.stripeService.getUntouchedOpenInvoices(period);
+    private async rescheduleActiveDrafts(): Promise<void> {
+        const draftsToReschedule = await this.stripeService.findFinalizingDrafts();
 
-        if (invoicesToProcess.length === 0) {
-            log.info('Необработанных инвойсов для переноса не найдено.');
+        if (draftsToReschedule.length === 0) {
+            log.info('Активных черновиков для переноса не найдено.');
             return;
         }
 
+        log.info(`Обнаружено ${draftsToReschedule.length} черновиков. Начинаю перенос даты финализации...`);
         let processedCount = 0;
-        for (const [index, invoice] of invoicesToProcess.entries()) {
+
+        for (const invoice of draftsToReschedule) {
             try {
-                if (checkInvoiceValid(invoice) === false) {
-                    log.warn(`Пропущен инвойс с некорректным ID: ${invoice.id}`);
-                    continue; 
-                }
-
-                const baseDate = period.startTimestamp;
-                const delayDays = config.app.delayCycleDays[index % config.app.delayCycleDays.length];
-                const newDueDateTimestamp = this.timeService.calculateNewDueDate(baseDate, delayDays, config.app.newDueTime);
-
-                log.info(`\n -> Обработка инвойса ${invoice.id}:`);
-                log.info(`    Текущая дата оплаты: ${invoice.due_date ? DateTime.fromSeconds(invoice.due_date, { zone: config.app.accountTimezone }).toFormat('yyyy-MM-dd') : 'Нет'}`);
-                log.info(`    Применяемое смещение: +${delayDays} дней от сегодня.`);
-
-                if (config.app.dryRun == true) {
-                    log.info(`dry-run --- Инвойс ${invoice.id} НЕ обновлён. Новая дата: ${DateTime.fromSeconds(newDueDateTimestamp, { zone: config.app.accountTimezone }).toISO()}`);
-                } else {
-                    await this.stripeService.rescheduleInvoice(invoice.id as string, newDueDateTimestamp);
-                    log.info(`Инвойс ${invoice.id} обновлён. Новая дата: ${DateTime.fromSeconds(newDueDateTimestamp, { zone: config.app.accountTimezone }).toISO()}`);
+                if (!checkInvoiceValid(invoice)) {
+                    log.warn(`Пропущен черновик с некорректным ID: ${invoice.id}`);
+                    continue;
                 }
                 
-                processedCount++;
+                const tomorrowTimestamp = this.timeService.calculateNewDueDate(Date.now() / 1000, 1, config.app.newDueTime);
 
+                log.info(`\n -> Обработка черновика ${invoice.id}:`);
+                log.info(`    Новая дата финализации будет: ${new Date(tomorrowTimestamp * 1000).toISOString()}`);
+
+                if (config.app.dryRun) {
+                    log.info(`[DRY-RUN] Для инвойса ${invoice.id} НЕ была бы перенесена дата финализации.`);
+                } else {
+                    await this.stripeService.rescheduleDraftFinalization(invoice.id!, tomorrowTimestamp);
+                }
+                processedCount++;
             } catch (error) {
-                const invoiceId = invoice.id || 'ID НЕИЗВЕСТЕН';
-                log.warn(`Не удалось обработать инвойс ${invoiceId}. Скрипт продолжит работу со следующими инвойсами.`);
-                log.warn(`   Причина: ${error}`);
+                log.error(`Не удалось перенести черновик ${invoice.id}. Причина: ${error}`);
             }
         }
-
-        log.info(`\nПроцесс завершен. Успешно перенесено инвойсов: ${processedCount} из ${invoicesToProcess.length}.`);
+        log.info(`\nПроцесс переноса черновиков завершен. Обработано: ${processedCount} из ${draftsToReschedule.length}.`);
     }
 }
 

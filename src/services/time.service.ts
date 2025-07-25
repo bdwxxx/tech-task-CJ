@@ -20,9 +20,9 @@ export class TimeService {
         return { startTimestamp, endTimestamp };
     }
 
-    public calculateNewDueDate(startTimestamp: number, delayDays: number, dueTime: { hours: number; minutes: number; seconds: number }): number {
+    public calculateNewDueDate(baseTimestamp: number, delayDays: number, dueTime: { hours: number; minutes: number; seconds: number }): number {
         const tz = config.app.accountTimezone;
-        const base = DateTime.fromSeconds(startTimestamp, { zone: tz });
+        const base = DateTime.fromSeconds(baseTimestamp, { zone: tz });
         const target = base.plus({ days: delayDays }).set({
             hour: dueTime.hours,
             minute: dueTime.minutes,
