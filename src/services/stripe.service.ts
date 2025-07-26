@@ -15,26 +15,59 @@ export class StripeService {
         log.info('Сервис инициализирован.');
     }
 
-    public async getGrossVolume(startTimestamp: number, endTimestamp: number): Promise<number> {
-        log.info(`Получение Gross Volume`);
-        let grossVolumeCents = 0;
+     public async getGrossVolume(startTimestamp: number, endTimestamp: number): Promise<number> {
+        log.info(`Получение Gross Volume (с учетом всех валют)...`);
 
+        const charges: Stripe.Charge[] = [];
         const events = this.stripe.events.list({
             created: { gte: startTimestamp, lte: endTimestamp },
-            type: 'charge.succeeded', 
-            limit: 100, 
+            type: 'charge.succeeded',
+            limit: 100,
         });
 
         for await (const event of events) {
-            const charge = event.data.object as Stripe.Charge;
-
-            if (charge.currency.toLowerCase() === config.app.currency) {
-                grossVolumeCents += charge.amount;
-            }
+            charges.push(event.data.object as Stripe.Charge);
         }
-        
+
+        if (charges.length === 0) {
+            log.info(`Успешных платежей за период не найдено.`);
+            return 0;
+        }
+
+        const promises = charges.map(charge => {
+            if (!charge.balance_transaction || typeof charge.balance_transaction !== 'string') {
+                log.warn(`У платежа ${charge.id} нет ID транзакции по балансу, пропускаем.`);
+                return Promise.resolve(null);
+            }
+            return this.stripe.balanceTransactions.retrieve(charge.balance_transaction);
+        });
+
+        const results = await Promise.allSettled(promises);
+        let grossVolumeCents = 0;
+
+        results.forEach((result, index) => {
+            const originalCharge = charges[index];
+
+            if (result.status === 'fulfilled' && result.value) {
+                const balanceTransaction = result.value;
+                grossVolumeCents += balanceTransaction.amount;
+
+                const originalAmount = (originalCharge.amount / 100).toFixed(2);
+                const settledAmount = (balanceTransaction.amount / 100).toFixed(2);
+
+                if (originalCharge.currency.toUpperCase() !== balanceTransaction.currency.toUpperCase()) {
+                    log.info(`Платеж ${originalCharge.id}: ${originalAmount} ${originalCharge.currency.toUpperCase()} -> ${settledAmount} ${balanceTransaction.currency.toUpperCase()}`);
+                } else {
+                    log.info(`Платеж ${originalCharge.id}: ${settledAmount} ${balanceTransaction.currency.toUpperCase()}`);
+                }
+
+            } else if (result.status === 'rejected') {
+                log.error(`Не удалось получить транзакцию для платежа ${originalCharge.id}. Ошибка: ${result.reason}`);
+            }
+        });
+
         const grossVolume = grossVolumeCents / 100;
-        log.info(`Gross Volume за период (по событиям): ${grossVolume.toFixed(2)} ${config.app.currency.toUpperCase()}`);
+        log.info(`Итоговый Gross Volume за период (все валюты): ${grossVolume.toFixed(2)} AED`);
         return grossVolume;
     }
 
