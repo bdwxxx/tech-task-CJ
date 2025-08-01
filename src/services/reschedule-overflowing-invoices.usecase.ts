@@ -5,14 +5,18 @@ import { logger } from '../utils/logger.js';
 import { DateTime } from 'luxon';
 import axios from 'axios';
 import { Stripe } from 'stripe';
+import { TelegramService } from './telegram.service.js';
+import { SendNotificationUsecase } from '../usecases/send-notification.js';
 
 const log = logger(import.meta);
 
 export class RescheduleOverflowingInvoicesUsecase {
+
     constructor(
         private stripeService: StripeService,
         private timeService: TimeService,
-        private getIdAccount: () => string 
+        private telegram: SendNotificationUsecase,
+        private getIdAccount: () => string
     ) {}
 
     public async run(dailyLimit: number): Promise<void> {
@@ -25,7 +29,8 @@ export class RescheduleOverflowingInvoicesUsecase {
         log.info(`Дневной лимит: ${dailyLimit} ${config.app.currency.toUpperCase()}`);
 
         if (grossVolume >= dailyLimit) {
-            log.warn(`Лимит превышен! (${grossVolume} >= ${dailyLimit})`);
+            this.telegram.execute(grossVolume, dailyLimit, this.getIdAccount())
+            
             log.warn(`Начинаем перенос инвойсов...`);
             await this.rescheduleDraftsForToday(period);
         } else {

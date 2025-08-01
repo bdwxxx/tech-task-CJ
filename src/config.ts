@@ -10,6 +10,10 @@ if (!process.env.WORKER_ACCOUNT_ID) {
   throw new Error('WORKER_ACCOUNT_ID не установлен');
 }
 
+if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+  console.warn('Переменные для Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) не установлены. Уведомления работать не будут.');
+}
+
 export const config = {
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
@@ -24,4 +28,8 @@ export const config = {
     initialDailyLimit: 30,
     dryRun: process.env.DRY_RUN === 'true',
   },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN,
+    chatId: process.env.TELEGRAM_CHAT_ID,
+  }
 };

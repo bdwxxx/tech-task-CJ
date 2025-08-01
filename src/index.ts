@@ -6,6 +6,8 @@ import { RescheduleOverflowingInvoicesUsecase } from './services/reschedule-over
 import { StripeService } from './services/stripe.service.js';
 import { TimeService } from './services/time.service.js';
 import { Request, Response, NextFunction } from 'express';
+import { TelegramService } from './services/telegram.service.js';
+import { SendNotificationUsecase } from './usecases/send-notification.js';
 
 const app = express();
 app.use(express.json());
@@ -15,7 +17,9 @@ let currentDailyLimit = config.app.initialDailyLimit;
 
 const timeService = new TimeService();
 const stripeService = new StripeService();
-const rescheduleUsecase = new RescheduleOverflowingInvoicesUsecase(stripeService, timeService, () => config.app.idAccount);
+const telegramService = new TelegramService();
+const sendNotificationUsecase = new SendNotificationUsecase(telegramService);
+const rescheduleUsecase = new RescheduleOverflowingInvoicesUsecase(stripeService, timeService, sendNotificationUsecase, () => config.app.idAccount);
 
 const verifyGateway = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
@@ -81,6 +85,10 @@ cron.schedule('* * * * *', () => {
   runTask().catch(e => log.warn(`Непредвиденная ошибка в крон-задаче: ${e}`));
 }, { timezone: config.app.accountTimezone });
 
+cron.schedule('1 0 * * *', () => {
+    log.info('Сброс состояния ежедневного уведомления о лимите...');
+    sendNotificationUsecase.resetNotificationState();
+}, { timezone: config.app.accountTimezone });
 
 const host = '0.0.0.0';
 const port = Number(process.env.PORT) || 3005;
