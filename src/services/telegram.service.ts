@@ -32,9 +32,9 @@ export class TelegramService {
             await this.bot.telegram.sendMessage(config.telegram.chatId, message, {
                 parse_mode: 'Markdown',
             });
-            log.info('Уведомление в Telegram успешно отправлено через Telegraf.');
+            log.info('Уведомление в Telegram успешно отправлено');
         } catch (error) {
-            log.error(`Ошибка при отправке уведомления через Telegraf: ${error}`);
+            log.error(`Ошибка при отправке уведомления в Telegram: ${error}`);
         }
     }
 }

@@ -8,8 +8,8 @@ const log = logger(import.meta);
 export class StripeService {
     private stripe: Stripe;
 
-    constructor() {
-        this.stripe = new Stripe(config.stripe.secretKey, {
+    constructor(apiKey: string) {
+        this.stripe = new Stripe(apiKey, {
             typescript: true,
         });
         log.info('Сервис инициализирован.');

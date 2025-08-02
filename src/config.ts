@@ -2,12 +2,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY не установлен');
+if (!process.env.WORKER_ACCOUNT_ID) {
+  throw new Error('WORKER_ACCOUNT_ID не установлен в .env файле. Воркер не сможет инициализироваться.');
 }
 
-if (!process.env.WORKER_ACCOUNT_ID) {
-  throw new Error('WORKER_ACCOUNT_ID не установлен');
+if (!process.env.ENCRYPTION_SECRET_KEY) {
+  throw new Error('ENCRYPTION_SECRET_KEY не установлен в .env файле. Воркер не сможет расшифровать API ключ.');
+}
+if (!process.env.GATEWAY_SECRET) {
+  throw new Error('GATEWAY_SECRET не установлен в .env файле. Воркер не сможет аутентифицировать запросы от шлюза.');
 }
 
 if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
